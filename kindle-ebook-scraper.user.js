@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name         LIRN ProQuest Ebook Scraper
-// @namespace    https://github.com/gekkedev/LIRN-proquest-ebook-scraper
-// @updateURL    https://raw.githubusercontent.com/gekkedev/LIRN-proquest-ebook-scraper/main/LIRN-proquest-ebook-scraper.user.js
-// @downloadURL  https://raw.githubusercontent.com/gekkedev/LIRN-proquest-ebook-scraper/main/LIRN-proquest-ebook-scraper.user.js
-// @version      1.2
-// @description  Automatically downloads entire ebooks from LIRN ProQuest Ebook Central as a PDF, triggered by user action.
+// @name         Amazon Kindle Ebook Scraper
+// @namespace    https://github.com/gekkedev/kindle-ebook-scraper
+// @updateURL    https://raw.githubusercontent.com/gekkedev/kindle-ebook-scraper/main/kindle-ebook-scraper.user.js
+// @downloadURL  https://raw.githubusercontent.com/gekkedev/kindle-ebook-scraper/main/kindle-ebook-scraper.user.js
+// @version      1.0
+// @description  Automatically downloads entire ebooks from the Amazon Kindle Cloud Reader as a PDF, triggered by user action.
 // @match        https://*ebookcentral-proquest-com.proxy.lirn.net/lib/*/reader.action?docID=*
 // @grant        GM_registerMenuCommand
 // @grant        GM_notification
@@ -13,7 +13,7 @@
 
 (function() {
   'use strict';
-  const softwareTitle = "LIRN ProQuest Ebook Scraper";
+  const softwareTitle = "Amazon Kindle Ebook Scraper"
 
   async function scrollThroughPages() {
     function getCurrentPageNumber() {
