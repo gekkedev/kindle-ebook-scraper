@@ -19,7 +19,7 @@ By using this script, you acknowledge and agree that the developers are not resp
 **Opera**: Install [this](https://addons.opera.com/en/extensions/details/install-chrome-extensions/) extension first, then you can install Violentmonkey or Tampermonkey from the Chrome extension store.  
 **Microsoft Edge**: Install [Violentmonkey](https://microsoftedge.microsoft.com/addons/detail/violentmonkey/eeagobfjdenkkddmbclomhiblgggliao) or [Tampermonkey](https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd) from the Edge Add-On Repository.
 
-2. Click [here](https://raw.githubusercontent.com/gekkedev/kindle-scraper/main/kindle-ebook-scraper.user.js) to install the scraper
+2. Click [here](https://raw.githubusercontent.com/gekkedev/kindle-ebook-scraper/main/kindle-ebook-scraper.user.js) to install the scraper
 3. Open the viewing mode of an ebook on _Amazon Kindle_
 4. Select "Start ebook scraping":  
    ![](1.png)
