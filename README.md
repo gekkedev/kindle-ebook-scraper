@@ -12,7 +12,7 @@ By using this script, you acknowledge and agree that the developers are not resp
 
 # Installation
 
-1. get a userscript runner
+1. Get a userscript runner
 
 **Google Chrome**: Install [Violentmonkey](https://chrome.google.com/webstore/detail/violentmonkey/jinjaccalgkegednnccohejagnlnfdag) or [Tampermonkey](https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo).  
 **Mozilla Firefox**: Install [Greasemonkey](https://addons.mozilla.org/en-US/firefox/addon/greasemonkey/), or [Violentmonkey](https://addons.mozilla.org/en-US/firefox/addon/violentmonkey/), or [Tampermonkey](https://addons.mozilla.org/en-US/firefox/addon/tampermonkey/).  
@@ -21,8 +21,7 @@ By using this script, you acknowledge and agree that the developers are not resp
 
 2. Click [here](https://raw.githubusercontent.com/gekkedev/kindle-ebook-scraper/main/kindle-ebook-scraper.user.js) to install the scraper
 3. Open the viewing mode of an ebook on _Amazon Kindle_
-4. Select "Start ebook scraping":  
-   ![](1.png)
+4. Select "Start ebook scraping" from the userscript runner's menu.
 5. Wait until all pages have been requested
 6. The download should start automatically
 
