@@ -3,7 +3,7 @@
 // @namespace    https://github.com/gekkedev/kindle-ebook-scraper
 // @updateURL    https://raw.githubusercontent.com/gekkedev/kindle-ebook-scraper/main/kindle-ebook-scraper.user.js
 // @downloadURL  https://raw.githubusercontent.com/gekkedev/kindle-ebook-scraper/main/kindle-ebook-scraper.user.js
-// @version      1.0
+// @version      1.1
 // @description  Automatically downloads entire ebooks from the Amazon Kindle Cloud Reader as a PDF, triggered by user action.
 // @match        https://lesen.amazon.de/*?asin=*
 // @match        https://read.amazon.co.uk/*?asin=*
@@ -19,17 +19,35 @@
   "use strict"
   const softwareTitle = "Amazon Kindle Ebook Scraper"
 
-  function getImage() {
-    return document.querySelector("#kr-renderer img")
+  // ---------- Settings ----------
+  const CONFIG = {
+    pageChangeTimeoutMs: 8000, // max wait for a new page to be displayed
+    pollIntervalMs: 100,       // polling frequency
+    navRetries: 3,             // number of re-clicks before concluding "end of book"
+    settleDelayMs: 300,        // pause after a page change (lets rendering finish)
+    imageLoadTimeoutMs: 15000, // max wait for the page image to load
+    jpegQuality: 0.8,          // 1.0 = huge files, 0.8 = barely visible difference
+    maxImageWidth: 1600,       // downscales oversized pages (0 = no downscaling)
+    pagesPerPdf: 250,          // splits into several PDFs to avoid exhausting memory
+    progressEvery: 25          // logs progress every N pages
   }
 
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
+  const log = (...args) => console.log(`[${softwareTitle}]`, ...args)
+
+  function getImage() {
+    return document.querySelector("#kr-renderer img")
+  }
+  /** stable page identity: the image source (the <img> element itself may be reused) */
+  function pageKey() {
+    const img = getImage()
+    return img ? img.currentSrc || img.src : null
+  }
 
   function getBookTitle() {
     function sanitizeFilename(name) {
       return name.replace(/[\\/:*?"<>|]/g, "_").trim() || "downloaded_book"
     }
-
     const candidates = [
       document.querySelector("ion-title"),
       document.querySelector(".top-chrome__book-title"),
@@ -37,125 +55,162 @@
     ]
     for (const node of candidates) {
       const text = node?.textContent?.trim()
-      if (text) {
-        return sanitizeFilename(text)
-      }
+      if (text) return sanitizeFilename(text)
     }
     return sanitizeFilename(document.title || "downloaded_book")
   }
 
-  // Register the menu command to trigger the process
-  GM_registerMenuCommand("Start Ebook Scraping", async function () {
-    GM_notification("Starting ebook download process...", softwareTitle)
-    /** some buttons don't react to direct programmatic clicks */
-    function enforceClick(element) {
-      ;["pointerdown", "mousedown", "pointerup", "mouseup", "click"].forEach(type => {
-        element.dispatchEvent(
-          new MouseEvent(type, { bubbles: true, cancelable: true, composed: true, view: unsafeWindow })
-        )
-      })
+  /** some buttons don't react to direct programmatic clicks */
+  function enforceClick(element) {
+    ;["pointerdown", "mousedown", "pointerup", "mouseup", "click"].forEach(type => {
+      element.dispatchEvent(
+        new MouseEvent(type, { bubbles: true, cancelable: true, composed: true, view: unsafeWindow })
+      )
+    })
+  }
+  function forwardButton() {
+    return document.querySelector("button#kr-chevron-right")
+  }
+  function backwardButton() {
+    return document.querySelector("button#kr-chevron-left")
+  }
+  function isUsable(btn) {
+    return btn && !btn.disabled && btn.getAttribute("aria-disabled") !== "true"
+  }
+
+  function triggerNavigation(getBtn, wheelDelta) {
+    const btn = getBtn?.()
+    if (btn) {
+      enforceClick(btn)
+      return true
     }
-
-    function forwardButton() {
-      return document.querySelector("button#kr-chevron-right")
+    const target = document.querySelector(".loader")
+    if (target) {
+      target.dispatchEvent(
+        new WheelEvent("wheel", { deltaY: wheelDelta, bubbles: true, cancelable: true, view: unsafeWindow })
+      )
+      return true
     }
-    function backwardButton() {
-      return document.querySelector("button#kr-chevron-left")
+    return false
+  }
+
+  /** waits until a page different from `before` is displayed (instead of a fixed 50 ms delay) */
+  async function waitForPageChange(before, timeoutMs) {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const now = pageKey()
+      if (now && now !== before) return true
+      await delay(CONFIG.pollIntervalMs)
     }
-    /** shared navigation helper */
-    async function navigate({ getBtn, wheelDelta }) {
-      const before = getImage()
+    return false
+  }
 
-      const btn = getBtn?.()
-      if (btn) {
-        enforceClick(btn)
-      } else {
-        // Fallback to a synthetic wheel event if no button is available
-        const wheelEvent = new WheelEvent("wheel", {
-          deltaY: wheelDelta, // +1 = forward, -1 = backward
-          bubbles: true,
-          cancelable: true,
-          view: unsafeWindow
-        })
+  /** navigation with a real wait + retries; false = no more pages */
+  async function navigate({ getBtn, wheelDelta }) {
+    const before = pageKey()
+    for (let attempt = 1; attempt <= CONFIG.navRetries; attempt++) {
+      if (!triggerNavigation(getBtn, wheelDelta)) return false
+      if (await waitForPageChange(before, CONFIG.pageChangeTimeoutMs)) return true
+      // no change: if the button is disabled, we really are at the end
+      if (!isUsable(getBtn?.())) return false
+      log(`No page change (attempt ${attempt}/${CONFIG.navRetries}), retrying…`)
+    }
+    return false
+  }
+  const goForward = () => navigate({ getBtn: forwardButton, wheelDelta: 1 })
+  const goBackward = () => navigate({ getBtn: backwardButton, wheelDelta: -1 })
 
-        const target = document.querySelector(".loader")
-        if (target) {
-          target.dispatchEvent(wheelEvent)
-        }
-      }
-
+  async function waitForImageLoaded() {
+    const deadline = Date.now() + CONFIG.imageLoadTimeoutMs
+    while (Date.now() < deadline) {
+      const img = getImage()
+      if (img?.complete && img.naturalWidth > 0) return img
       await delay(50)
-      return before !== getImage()
     }
+    throw new Error("Page image did not load within the timeout")
+  }
 
-    async function goForward() {
-      return navigate({ getBtn: forwardButton, wheelDelta: 1 })
+  /** PDF manager: adds pages, splits into parts, saves what was captured if an error occurs */
+  class PdfWriter {
+    constructor(title) {
+      this.title = title
+      this.part = 0
+      this.pagesInPart = 0
+      this.totalPages = 0
+      this.pdf = null
     }
-    async function goBackward() {
-      return navigate({ getBtn: backwardButton, wheelDelta: -1 })
+    newPdf() {
+      this.pdf = new jspdf.jsPDF({ compress: true }) // A4 by default
+      this.pagesInPart = 0
+      this.part++
     }
+    addImage(image) {
+      if (!this.pdf) this.newPdf()
 
-    const pdf = new jspdf.jsPDF() // Default A4 page size (210x297mm)
+      // optional downscaling to limit memory and file size
+      let w = image.naturalWidth
+      let h = image.naturalHeight
+      if (CONFIG.maxImageWidth && w > CONFIG.maxImageWidth) {
+        h = Math.round((h * CONFIG.maxImageWidth) / w)
+        w = CONFIG.maxImageWidth
+      }
+      const canvas = document.createElement("canvas")
+      canvas.width = w
+      canvas.height = h
+      canvas.getContext("2d").drawImage(image, 0, 0, w, h)
+      const imgData = canvas.toDataURL("image/jpeg", CONFIG.jpegQuality)
+      canvas.width = canvas.height = 0 // frees the bitmap immediately
 
-    // navigate to the first page
-    while (backwardButton()) {
-      await goBackward()
-    } //already at the beginning
+      const pdfWidth = this.pdf.internal.pageSize.getWidth()
+      const pdfHeight = this.pdf.internal.pageSize.getHeight()
+      let imgWidth = pdfWidth
+      let imgHeight = (h / w) * pdfWidth
+      if (imgHeight > pdfHeight) {
+        imgHeight = pdfHeight
+        imgWidth = (w / h) * pdfHeight
+      }
+      if (this.pagesInPart > 0) this.pdf.addPage()
+      this.pdf.addImage(imgData, "JPEG", (pdfWidth - imgWidth) / 2, (pdfHeight - imgHeight) / 2, imgWidth, imgHeight, undefined, "FAST")
 
-    //NOTE: going to the beginning and starting from there isn't the most efficient implementation (not trying to overengineer it)
-
-    await captureImage(true) // first page
-    // scroll forward and capture images until we reach the end
-    while (await goForward()) {
-      await delay(500)
-      await captureImage()
+      this.pagesInPart++
+      this.totalPages++
+      if (this.pagesInPart >= CONFIG.pagesPerPdf) this.flush()
     }
+    flush() {
+      if (!this.pdf || this.pagesInPart === 0) return
+      const suffix = this.part > 1 || this.pagesInPart >= CONFIG.pagesPerPdf ? ` - part ${this.part}` : ""
+      this.pdf.save(`${this.title}${suffix}.pdf`)
+      log(`PDF saved (${this.pagesInPart} pages, part ${this.part})`)
+      this.pdf = null
+    }
+  }
 
-    async function captureImage(firstPage = false) {
-      while (!getImage()?.complete || getImage()?.naturalWidth === 0) {
-        //wait for the page image to load
-        await delay(50)
+  async function scrape({ fromStart }) {
+    const title = getBookTitle()
+    const writer = new PdfWriter(title)
+    GM_notification("Starting capture…", softwareTitle)
+
+    try {
+      if (fromStart) {
+        while (isUsable(backwardButton()) && (await goBackward())) {}
       }
 
-      // draw the image on a canvas and append it to the PDF file
-      await new Promise(resolve => {
-        const image = getImage()
-        const canvas = document.createElement("canvas")
-        const ctx = canvas.getContext("2d")
-
-        // Set canvas size to the image's original size
-        canvas.width = image.naturalWidth
-        canvas.height = image.naturalHeight
-        ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
-
-        // Convert to image data
-        const imgData = canvas.toDataURL("image/jpeg")
-
-        // Get PDF page dimensions
-        const pdfWidth = pdf.internal.pageSize.getWidth()
-        const pdfHeight = pdf.internal.pageSize.getHeight()
-
-        // Calculate image dimensions while preserving aspect ratio
-        let imgWidth = pdfWidth
-        let imgHeight = (canvas.height / canvas.width) * pdfWidth
-
-        // Ensure it fits within page height
-        if (imgHeight > pdfHeight) {
-          imgHeight = pdfHeight
-          imgWidth = (canvas.width / canvas.height) * pdfHeight
-        }
-
-        // Add image to PDF, centering it properly
-        if (!firstPage) pdf.addPage()
-        const xOffset = (pdfWidth - imgWidth) / 2 // Center horizontally
-        const yOffset = (pdfHeight - imgHeight) / 2 // Center vertically
-
-        pdf.addImage(imgData, "JPEG", xOffset, yOffset, imgWidth, imgHeight)
-        resolve()
-      })
+      writer.addImage(await waitForImageLoaded())
+      while (await goForward()) {
+        await delay(CONFIG.settleDelayMs)
+        writer.addImage(await waitForImageLoaded())
+        if (writer.totalPages % CONFIG.progressEvery === 0) log(`${writer.totalPages} pages captured…`)
+      }
+      log(`End of book reached: ${writer.totalPages} pages.`)
+      GM_notification(`Done: ${writer.totalPages} pages.`, softwareTitle)
+    } catch (err) {
+      console.error(`[${softwareTitle}]`, err)
+      GM_notification(`Error after ${writer.totalPages} pages — saving what was captured.`, softwareTitle)
+    } finally {
+      writer.flush() // always saves what was captured, even if an error occurred
     }
+  }
 
-    // Save the PDF with the book title
-    pdf.save(`${getBookTitle()}.pdf`)
-  })
+  GM_registerMenuCommand("Start Ebook Scraping (from the beginning)", () => scrape({ fromStart: true }))
+  GM_registerMenuCommand("Start Ebook Scraping (from the current page)", () => scrape({ fromStart: false }))
 })()
